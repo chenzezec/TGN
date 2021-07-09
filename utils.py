@@ -26,8 +26,8 @@ class TrajectoryDataset(Dataset):
             data_path = [data_dirs[i] for i in train_data]
         else:
             data_path = [data_dirs[i] for i in test_data]
-        ped_list = []
-        ped_list_rel = []
+        ped_traj_list = []
+        ped_traj_list_rel = []
         nums_in_ped_list = []
         for path in data_path:
             file_path = os.path.join(path, 'true_pos_.csv')
@@ -57,23 +57,45 @@ class TrajectoryDataset(Dataset):
 
                 if peds > args.min_ped:
                     nums_in_ped_list.append(peds)
-                    ped_list.append(peds_traj[:, :peds])
-                    ped_list_rel.append(peds_traj_rel[:, :peds])
+                    ped_traj_list.append(peds_traj[:, :peds])
+                    ped_traj_list_rel.append(peds_traj_rel[:, :peds])
 
         self.traj_num = len(nums_in_ped_list)
-        self.ped_list = np.concatenate(ped_list, axis=1)
-        self.ped_list_rel = np.concatenate(ped_list_rel, axis=1)
+        self.ped_traj_list = np.concatenate(ped_traj_list, axis=1)
+        self.ped_traj_list_rel = np.concatenate(ped_traj_list_rel, axis=1)
 
         start_end = [0] + np.cumsum(nums_in_ped_list).tolist()
         self.traj_start_end = [(start, end) for start, end in zip(start_end, start_end[1:])]
 
+        self.A = []
+        for i in range(len(self.traj_start_end)):
+            start, end = self.traj_start_end[i]
+            a = self.get_social_adj(self.ped_traj_list[:, start:end])
+            self.A.append(a)
+
+    def get_social_adj(self, seq):
+        frame_num = seq.shape[0]
+        ped_num = seq.shape[1]
+        social_adj = np.zeros((frame_num, ped_num, ped_num))
+        for s in range(frame_num):
+            ped_node = seq[s]
+            for i in range(ped_num):
+                pedi = ped_node[i]
+                for j in range(i + 1, ped_num):
+                    pedj = ped_node[j]
+                    dist = np.sqrt(np.sum(np.square(pedi - pedj)))
+                    social_adj[s, i, j] = 1
+                    social_adj[s, j, i] = 1
+
+        return social_adj
 
     def __len__(self):
         return self.traj_num
 
     def __getitem__(self, index):
+        social_adj = A[index]
         start, end = self.traj_start_end[index]
         traj = self.ped_list[:, start:end]
         traj_rel = self.ped_list_rel[:, start:end]
 
-        return traj, traj_rel
+        return traj, traj_rel, social_adj
