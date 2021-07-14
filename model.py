@@ -5,6 +5,12 @@ import numpy as np
 import torch.nn as nn
 from torch.nn import functional as F
 
+def get_noise(shape, noise_type):
+    if noise_type == "gaussian":
+        return torch.randn(shape).cuda()
+    elif noise_type == "uniform":
+        return torch.rand(*shape).sub_(0.5).mul_(2.0).cuda()
+    raise ValueError('Unrecognized noise type "%s"' % noise_type)
 
 def linear(input, weight, bias=None):
     output = torch.matmul(input, weight)
@@ -135,16 +141,51 @@ class TrajectoryModel(nn.Module):
         self.rel_embedding = nn.Linear(2, 64)
 
         self.spatial_fusion = nn.Linear(128, 64)
-        self.output_layer = nn.Linear(128, 2)
+        self.fusion_layer = nn.Linear(128, 64)
+        self.output_layer = nn.Linear(80, 2)
+
+    def normalize_input(self, seq):
+        # seq = seq.permute(1, 0, 2)
+        mean_x = torch.mean(seq[:, :, 0])
+        mean_y = torch.mean(seq[:, :, 1])
+
+        seq[:, :, 0] = seq[:, :, 0] - mean_x
+        seq[:, :, 1] = seq[:, :, 1] - mean_y
+
+        return seq
 
     def forward(self, inputs, iftest=False):
-        traj, traj_rel = inputs
-
+        traj, traj_rel, social_adj = inputs
+        output = torch.zeros(traj.shape[0], traj.shape[1], 2).cuda()
+        noise = get_noise((1, 16), 'gaussian')
         for curr_frame in range(self.args.seq_len - 1):
-            if frame >= self.args.obs_len and iftest:
-                pass
+            if curr_frame >= self.args.obs_len and iftest:
+                traj_input = output[self.obs_len - 1:curr_frame]
+                traj_input = torch.cat((traj[:self.obs_len], traj_input))
+                traj_rel_input = torch.zeros(traj_input.shape)
+                traj_rel_input[1:] = traj_input[1:] - traj_input[:-1]
+                traj_input = self.normalize_input(traj_input)
             else:
-                traj = traj[:curr_frame + 1]
-                traj_rel = traj_rel[:curr_frame + 1]
+                traj_input = traj[:curr_frame + 1]
+                traj_rel_input = traj_rel[:curr_frame + 1]
+                traj_input = self.normalize_input(traj_input)
 
-            spatial_embedding = self.abs_embedding(traj)
+            spatial_input_embedding = self.abs_embedding(traj_input)
+            temporal_input_embedding = self.rel_embedding(traj_rel_input)
+
+            spatial_embedding_1 = self.spatial_encoder_1(spatial_input_embedding[-1].unsqueeze(0), social_adj)
+            if curr_frame >= 1:
+                spatial_embedding_2 = self.spatial_encoder_2(spatial_input_embedding[-2].unsqueeze(0), social_adj)
+            else:
+                spatial_embedding_2 = torch.zeros_like(spatial_embedding_1).cuda()
+            temporal_embedding = self.temporal_encoder(temporal_input_embedding.permute(1, 0, 2))
+            temporal_embedding = temporal_embedding.permute(1, 0, 2)[-1]
+            spatial_embedding = torch.cat((spatial_embedding_1, spatial_encoder_2), dim=2)
+            spatial_embedding = self.spatial_fusion(spatial_embedding)[-1]
+            st_fusion = torch.cat((spatial_embedding, temporal_embedding), dim=1)
+            st_fusion = self.fusion_layer(st_fusion)
+            noise = noise.repeat(st_fusion.shape[0], 1)
+            output_next = self.output_layer(torch.cat((st_fusion, noise), dim=1))
+            output[curr_frame] = output_next
+
+        return output
