@@ -40,7 +40,7 @@ class TrajectoryDataset(Dataset):
                 curr_frame = np.concatenate(frame_data[idx: idx + args.seq_len], axis=1)
                 peds_nums = np.unique(curr_frame[1, :]).tolist()
                 peds_traj = np.zeros((args.seq_len, len(peds_nums), 2))
-                peds_traj_rel = np.zeros((args.seq_len), len(peds_nums), 2)
+                peds_traj_rel = np.zeros((args.seq_len, len(peds_nums), 2))
                 peds = 0
                 for ped_id in peds_nums:
                     curr_ped_traj = curr_frame[:, ped_id == curr_frame[1, :]]
