@@ -1,4 +1,5 @@
 import os
+import math
 import numpy as np
 from torch.utils.data import Dataset
 
@@ -99,3 +100,17 @@ class TrajectoryDataset(Dataset):
         traj_rel = self.ped_list_rel[:, start:end]
 
         return traj, traj_rel, social_adj
+
+
+def ade_and_fde(pred, target):
+    frames = pred.shape[0]
+    peds = pred.shape[1]
+    ade = 0
+    fde = 0
+    for i in range(frames):
+        for j in range(peds):
+            ade += math.sqrt((pred[i, j, 0] - target[i, j, 0]) ** 2 + (pred[i, j, 1] - target[i, j, 1]) ** 2)
+            if i == frames - 1:
+                fde += math.sqrt((pred[i, j, 0] - target[i, j, 0]) ** 2 + (pred[i, j, 1] - target[i, j, 1]) ** 2)
+
+    return ade, fde
